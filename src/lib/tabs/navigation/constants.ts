@@ -27,6 +27,7 @@ export type PageHash =
   | '#metadata'
   | '#characters'
   | '#relics'
+  | '#relic-scores'
   | '#import'
   | '#teams'
 
@@ -39,6 +40,7 @@ export enum AppPages {
   OPTIMIZER = 'OPTIMIZER',
   CHARACTERS = 'CHARACTERS',
   RELICS = 'RELICS',
+  RELIC_SCORES = 'RELIC_SCORES',
   IMPORT = 'IMPORT',
 
   CHANGELOG = 'CHANGELOG',
@@ -62,6 +64,7 @@ export const PageToHash = {
   [AppPages.OPTIMIZER]: '#main',
   [AppPages.CHARACTERS]: CHARACTERS_HASH,
   [AppPages.RELICS]: '#relics',
+  [AppPages.RELIC_SCORES]: '#relic-scores',
   [AppPages.IMPORT]: '#import',
 
   [AppPages.HOME]: '',
@@ -86,6 +89,7 @@ export function getDefaultActiveKey() {
       page === AppPages.OPTIMIZER
       || page === AppPages.CHARACTERS
       || page === AppPages.RELICS
+      || page === AppPages.RELIC_SCORES
     )
     && localStorage.getItem('state') === null
   ) {

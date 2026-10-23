@@ -16,6 +16,7 @@ import {
   IconList,
   IconSettings,
   IconStarFilled,
+  IconTable,
   IconTrendingUp,
   IconTrophy,
   IconUpload,
@@ -273,6 +274,7 @@ export function MenuDrawer({ collapsed }: { collapsed: boolean }) {
         { key: AppPages.OPTIMIZER, label: t('Optimization.Optimizer'), icon: <IconTrendingUp size={16} /> },
         { key: AppPages.CHARACTERS, label: t('Optimization.Characters'), icon: <IconUser size={16} /> },
         { key: AppPages.RELICS, label: t('Optimization.Relics'), icon: <IconChartRadar size={16} /> },
+        { key: AppPages.RELIC_SCORES, label: t('Optimization.RelicScores'), icon: <IconTable size={16} /> },
         { key: AppPages.IMPORT, label: t('Optimization.Import'), icon: <IconUpload size={16} /> },
         {
           key: 'link settings',

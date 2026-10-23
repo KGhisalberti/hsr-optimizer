@@ -193,3 +193,21 @@ RelicInsights:
   UpgradedStats: 'Upgraded stats: '
   AvgPotential: 'Average potential: '
   MaxPotential: 'Maximum potential: '
+RelicScores:
+  Title: Relic scores by character
+  Description: Current substat score of each equipped relic, using each character's scoring weights. Click a column header to sort.
+  Empty: No characters yet. Import your data or add characters to see their relic scores.
+  Character: Character
+  Total: Total
+  Summary:
+    Header: Summary
+    Change: "Change:"
+    Reroll: "Reroll:"
+    MainStat: "Main stat:"
+    NextTarget: "Next upgrade:"
+    DamageGain: "+{{gain}}% DMG"
+    Simulating: Simulating main stats…
+    NothingToDo: Nothing to improve
+    EmptySlot: empty
+    NotFiveStar: not 5★
+    WrongMainStat: wrong main stat

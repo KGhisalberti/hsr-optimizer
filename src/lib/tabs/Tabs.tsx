@@ -11,6 +11,7 @@ import { ImportTab } from 'lib/tabs/tabImport/ImportTab'
 import { LeaderboardTab } from 'lib/tabs/tabLeaderboard/LeaderboardTab'
 import { OptimizerTab } from 'lib/tabs/tabOptimizer/OptimizerTab'
 import { RelicsTab } from 'lib/tabs/tabRelics/RelicsTab'
+import { RelicScoresTab } from 'lib/tabs/tabRelicScores/RelicScoresTab'
 import { ShowcaseTab } from 'lib/tabs/tabShowcase/ShowcaseTab'
 import { WarpCalculatorTab } from 'lib/tabs/tabWarp/WarpCalculatorTab'
 
@@ -51,6 +52,7 @@ const TAB_COMPONENTS: [AppPages, React.ComponentType][] = [
   [AppPages.OPTIMIZER, OptimizerTab],
   [AppPages.CHARACTERS, CharacterTab],
   [AppPages.RELICS, RelicsTab],
+  [AppPages.RELIC_SCORES, RelicScoresTab],
   [AppPages.IMPORT, ImportTab],
   [AppPages.SHOWCASE, ShowcaseTab],
   [AppPages.WARP, WarpCalculatorTab],
@@ -75,6 +77,7 @@ const MOUNT_PRIORITY: AppPages[] = [
   AppPages.CHANGELOG,
   AppPages.CHARACTERS,
   AppPages.RELICS,
+  AppPages.RELIC_SCORES,
   AppPages.IMPORT,
   // WEBGPU_TEST and METADATA_TEST are dev-only: lazy-loaded and mounted only on navigate
 ]
