@@ -1,19 +1,23 @@
 import {
   Badge,
   Flex,
-  Table,
   Text,
-  UnstyledButton,
 } from '@mantine/core'
 import {
-  IconArrowDown,
-  IconArrowUp,
-} from '@tabler/icons-react'
+  type ColDef,
+  type GetRowIdParams,
+} from 'ag-grid-community'
+import {
+  AgGridReact,
+  type CustomCellRendererProps,
+} from 'ag-grid-react'
 import chroma from 'chroma-js'
+import type { TFunction } from 'i18next'
 import {
   Parts,
   type StatsValues,
 } from 'lib/constants/constants'
+import { RELICS_TAB_WIDTH } from 'lib/constants/constantsUi'
 import { RelicScorer } from 'lib/relics/scoring/relicScorer'
 import { pctToRating } from 'lib/relics/scoring/scoreFormatting'
 import { hasMainStat } from 'lib/relics/scoring/substatScoring'
@@ -22,6 +26,7 @@ import type {
   ScorerMetadata,
 } from 'lib/relics/scoring/types'
 import { Assets } from 'lib/rendering/assets'
+
 import { useGlobalStore } from 'lib/stores/app/appStore'
 import { useCharacterStore } from 'lib/stores/character/characterStore'
 import { useRelicStore } from 'lib/stores/relic/relicStore'
@@ -46,16 +51,10 @@ import type { Relic } from 'types/relic'
 
 const PART_ORDER = [Parts.Head, Parts.Hands, Parts.Body, Parts.Feet, Parts.PlanarSphere, Parts.LinkRope] as const
 
-// Same 0 → 100% scale as the rating tiers, from red through yellow to green
-const scoreColorScale = chroma.scale(['#df524b99', '#efe95999', '#89d86d99']).domain([0, 40, 70])
-
 // Below an A rating, a relic is worth replacing
 const CHANGE_BELOW_PCT = 40
 // Minimum expected gain from reroll dice to suggest it (one rating tier)
 const REROLL_MIN_GAIN_PCT = 5
-
-type SortKey = Parts | 'total'
-type SortState = { key: SortKey, desc: boolean } | null
 
 type ChangeReason = 'EmptySlot' | 'NotFiveStar' | 'WrongMainStat' | 'LowScore'
 type ChangeSuggestion = { part: Parts, pct: number | null, reason: ChangeReason }
@@ -76,6 +75,8 @@ type RelicScoreRow = {
 
 // undefined: not started yet, null: no DPS simulation for this character
 type SimulationState = SimulatedMainStatUpgrade[] | null | 'pending' | undefined
+
+type RelicScoreGridRow = RelicScoreRow & { simulation: SimulationState }
 
 // Usable main stat that still isn't one of the character's recommended ones (e.g. HP% sphere instead of Ice DMG)
 function suboptimalMainStat(part: Parts, relic: Relic, meta: ScorerMetadata | undefined): MainStatSuggestion | null {
@@ -198,17 +199,82 @@ function useMainStatSimulations(characters: Character[], relicsById: Partial<Rec
   return results
 }
 
-function sortValue(row: RelicScoreRow, key: SortKey) {
-  return key === 'total' ? row.totalPct : (row.scores[key]?.percentScore ?? -1)
+// Same look as the Relics tab grid: balham dark theme, small headers, theme gradient on score cells
+const defaultColDef: ColDef<RelicScoreGridRow> = {
+  sortable: true,
+  headerClass: 'relicsTableHeader',
+  sortingOrder: ['desc', 'asc', null],
+  wrapHeaderText: true,
+  autoHeaderHeight: true,
+  suppressHeaderMenuButton: true,
+  suppressMovable: true,
 }
 
+const LEFT_ALIGNED = { justifyContent: 'flex-start' }
+
+// Red → yellow → green along the rating tiers (40% = A, 70% = SSS)
+const scoreColorScale = chroma.scale(['#df524b99', '#efe95999', '#89d86d99']).domain([0, 40, 70])
+
+// Goes through --cell-bg so the grid's hover/selection tints still layer on top
+function scoreCellStyle(pct: number | null | undefined) {
+  if (pct == null) return
+  return { '--cell-bg': scoreColorScale(pct).css() }
+}
+
+const CHARACTER_WIDTH = 190
+const PART_WIDTH = 115
+const TOTAL_WIDTH = 95
+// Fills the rest of the grid; 2px for the grid border
+const SUMMARY_WIDTH = RELICS_TAB_WIDTH - CHARACTER_WIDTH - PART_ORDER.length * PART_WIDTH - TOTAL_WIDTH - 2
+
+function generateColumnDefs(t: TFunction<['relicsTab', 'common']>): ColDef<RelicScoreGridRow>[] {
+  return [
+    {
+      colId: 'character',
+      headerName: t('RelicScores.Character'), /* Character */
+      width: CHARACTER_WIDTH,
+      sortable: false,
+      cellRenderer: CharacterCell,
+      cellStyle: LEFT_ALIGNED,
+    },
+    ...PART_ORDER.map((part): ColDef<RelicScoreGridRow> => ({
+      colId: part,
+      headerName: t(`common:ReadableParts.${part}`),
+      width: PART_WIDTH,
+      valueGetter: (params) => params.data?.scores[part]?.percentScore ?? null,
+      cellStyle: (params) => scoreCellStyle(params.value),
+      cellRenderer: RelicScoreCell,
+      cellRendererParams: { part },
+    })),
+    {
+      colId: 'total',
+      field: 'totalPct',
+      headerName: t('RelicScores.Total'), /* Total */
+      width: TOTAL_WIDTH,
+      cellStyle: (params) => scoreCellStyle(params.value),
+      cellRenderer: TotalCell,
+    },
+    {
+      colId: 'summary',
+      headerName: t('RelicScores.Summary.Header'), /* Summary */
+      // Fixed width like the Relics grid: the tab mounts hidden, so flex sizing would start from 0
+      width: SUMMARY_WIDTH,
+      sortable: false,
+      autoHeight: true,
+      cellRenderer: SummaryCell,
+      cellStyle: { ...LEFT_ALIGNED, padding: '4px 8px' },
+    },
+  ]
+}
+
+const getRowId = (params: GetRowIdParams<RelicScoreGridRow>) => params.data.characterId
+
 export function RelicScoresTab() {
-  const { t } = useTranslation(['relicsTab', 'common', 'gameData'])
+  const { t } = useTranslation(['relicsTab', 'common'])
   const characters = useCharacterStore((s) => s.characters)
   const relicsById = useRelicStore((s) => s.relicsById)
   // Custom scoring weights change the scores, so recompute when they change
   const scoringOverrides = useScoringStore((s) => s.scoringMetadataOverrides)
-  const [sort, setSort] = useState<SortState>(null)
   // Simulations are expensive, so only start them once the page is actually opened
   const isActive = useGlobalStore((s) => s.activeKey === AppPages.RELIC_SCORES)
   const [wasOpened, setWasOpened] = useState(isActive)
@@ -221,23 +287,15 @@ export function RelicScoresTab() {
     [characters, relicsById, scoringOverrides],
   )
 
-  const sortedRows = useMemo(() => {
-    if (!sort) return rows
-    const direction = sort.desc ? -1 : 1
-    return [...rows].sort((a, b) => direction * (sortValue(a, sort.key) - sortValue(b, sort.key)))
-  }, [rows, sort])
+  const rowData = useMemo<RelicScoreGridRow[]>(
+    () => rows.map((row) => ({ ...row, simulation: simulations[row.characterId] })),
+    [rows, simulations],
+  )
 
-  // Click cycles: descending → ascending → back to the character list order
-  function toggleSort(key: SortKey) {
-    setSort((prev) => {
-      if (prev?.key !== key) return { key, desc: true }
-      if (prev.desc) return { key, desc: false }
-      return null
-    })
-  }
+  const columnDefs = useMemo(() => generateColumnDefs(t), [t])
 
   return (
-    <Flex direction='column' gap={16} style={{ width: 1250, marginBottom: 200 }}>
+    <Flex direction='column' gap={8} style={{ width: RELICS_TAB_WIDTH, marginBottom: 200 }}>
       <Text size='xl' fw={700}>{t('RelicScores.Title') /* Relic scores by character */}</Text>
       <Text size='sm' c='dimmed'>
         {
@@ -250,65 +308,65 @@ export function RelicScoresTab() {
       {rows.length === 0
         ? <Text>{t('RelicScores.Empty') /* No characters yet. Import your data or add characters to see their relic scores. */}</Text>
         : (
-          <Table striped highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t('RelicScores.Character') /* Character */}</Table.Th>
-                {PART_ORDER.map((part) => (
-                  <SortableHeader
-                    key={part}
-                    sortKey={part}
-                    sort={sort}
-                    onSort={toggleSort}
-                    label={t(`common:ReadableParts.${part}`)}
-                  />
-                ))}
-                <SortableHeader sortKey='total' sort={sort} onSort={toggleSort} label={t('RelicScores.Total') /* Total */} />
-                <Table.Th>{t('RelicScores.Summary.Header') /* Summary */}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {sortedRows.map((row) => (
-                <Table.Tr key={row.characterId}>
-                  <Table.Td>
-                    <Flex align='center' gap={8}>
-                      <img src={Assets.getCharacterAvatarById(row.characterId)} style={{ width: 32, height: 32 }} loading='lazy' />
-                      <Text size='sm'>{t(`gameData:Characters.${row.characterId}.LongName`)}</Text>
-                    </Flex>
-                  </Table.Td>
-                  {PART_ORDER.map((part) => <ScoreCell key={part} result={row.scores[part]} relic={row.relics[part]} />)}
-                  <ScoreCell result={{ percentScore: row.totalPct, rating: row.totalRating }} bold />
-                  <SummaryCell row={row} simulation={simulations[row.characterId]} />
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <div id='relicScoresGrid' className='ag-theme-balham-dark' style={{ width: '100%' }}>
+            <AgGridReact<RelicScoreGridRow>
+              rowData={rowData}
+              columnDefs={columnDefs}
+              defaultColDef={defaultColDef}
+              getRowId={getRowId}
+              domLayout='autoHeight'
+              rowHeight={36}
+              headerHeight={36}
+              suppressCellFocus={true}
+              animateRows={true}
+            />
+          </div>
         )}
     </Flex>
   )
 }
 
-function SortableHeader({ sortKey, sort, onSort, label }: {
-  sortKey: SortKey,
-  sort: SortState,
-  onSort: (key: SortKey) => void,
-  label: string,
-}) {
+function CharacterCell({ data }: CustomCellRendererProps<RelicScoreGridRow>) {
+  const { t } = useTranslation('gameData')
+  if (!data) return null
   return (
-    <Table.Th style={{ textAlign: 'center' }}>
-      <UnstyledButton onClick={() => onSort(sortKey)}>
-        <Flex align='center' justify='center' gap={4}>
-          <Text fw={700} size='sm'>{label}</Text>
-          {sort?.key === sortKey && (sort.desc ? <IconArrowDown size={14} /> : <IconArrowUp size={14} />)}
-        </Flex>
-      </UnstyledButton>
-    </Table.Th>
+    <Flex align='center' gap={8} style={{ paddingLeft: 10 }}>
+      <img src={Assets.getCharacterAvatarById(data.characterId)} style={{ width: 28, height: 28 }} loading='lazy' />
+      <Text size='sm'>{t(`Characters.${data.characterId}.LongName`)}</Text>
+    </Flex>
   )
 }
 
-function SummaryCell({ row, simulation }: { row: RelicScoreRow, simulation: SimulationState }) {
+function RelicScoreCell({ data, part }: CustomCellRendererProps<RelicScoreGridRow> & { part: Parts }) {
+  const relic = data?.relics[part]
+  const result = data?.scores[part]
+  if (!relic || !result) return <Text size='sm' c='dimmed'>—</Text>
+  return (
+    <Flex align='center' gap={6}>
+      <img src={Assets.getSetImage(relic.set, relic.part)} style={{ width: 26, height: 26 }} loading='lazy' />
+      <ScoreText rating={result.rating} pct={result.percentScore} />
+    </Flex>
+  )
+}
+
+function TotalCell({ data }: CustomCellRendererProps<RelicScoreGridRow>) {
+  if (!data) return null
+  return <ScoreText rating={data.totalRating} pct={data.totalPct} bold />
+}
+
+function ScoreText({ rating, pct, bold }: { rating: string, pct: number, bold?: boolean }) {
+  return (
+    <Text size='sm' fw={bold ? 700 : 500}>
+      {rating} <Text span size='xs'>{pct.toFixed(1)}%</Text>
+    </Text>
+  )
+}
+
+function SummaryCell({ data }: CustomCellRendererProps<RelicScoreGridRow>) {
   const { t } = useTranslation(['relicsTab', 'common'])
-  const { toChange, toReroll } = row
+  if (!data) return null
+
+  const { toChange, toReroll, simulation } = data
   const partName = (part: Parts) => t(`common:ReadableParts.${part}`)
   const statName = (stat: StatsValues) => t(`common:ReadableStats.${stat}`)
 
@@ -318,57 +376,51 @@ function SummaryCell({ row, simulation }: { row: RelicScoreRow, simulation: Simu
     ? simulation.filter((x) => !toChange.some((c) => c.part === x.part))
     : []
   const simulatedParts = new Set<Parts>(simulated.map((x) => x.part))
-  const betterMainStat = row.betterMainStat.filter((x) => !simulatedParts.has(x.part))
+  const betterMainStat = data.betterMainStat.filter((x) => !simulatedParts.has(x.part))
 
   const mentioned = new Set<Parts>([...toReroll.map((x) => x.part), ...betterMainStat.map((x) => x.part), ...simulatedParts])
-  const nextTarget = findNextTarget(row, mentioned)
+  const nextTarget = findNextTarget(data, mentioned)
 
   const hasSuggestion = toChange.length > 0 || toReroll.length > 0 || betterMainStat.length > 0 || simulated.length > 0 || nextTarget
   const pending = simulation === 'pending'
 
   if (!hasSuggestion && !pending) {
-    return (
-      <Table.Td>
-        <Text size='sm' c='dimmed'>{t('RelicScores.Summary.NothingToDo') /* Nothing to improve */}</Text>
-      </Table.Td>
-    )
+    return <Text size='sm' c='dimmed'>{t('RelicScores.Summary.NothingToDo') /* Nothing to improve */}</Text>
   }
 
   return (
-    <Table.Td>
-      <Flex direction='column' gap={4}>
-        <SuggestionLine
-          label={t('RelicScores.Summary.Change') /* Change: */}
-          color='red'
-          items={toChange.map(({ part, pct, reason }) =>
-            `${partName(part)} · ${reason === 'LowScore' ? `${pct?.toFixed(1)}%` : t(`RelicScores.Summary.${reason}`)}`
-          )}
-        />
-        <SuggestionLine
-          label={t('RelicScores.Summary.Reroll') /* Reroll: */}
-          color='green'
-          items={toReroll.map(({ part, gainPct }) => `${partName(part)} · +${gainPct.toFixed(1)}%`)}
-        />
-        <SuggestionLine
-          label={t('RelicScores.Summary.MainStat') /* Main stat: */}
-          color='orange'
-          items={[
-            ...simulated.map(({ part, current, best, damageGainPct }) =>
-              `${partName(part)} · ${statName(current)} → ${statName(best)} (${t('RelicScores.Summary.DamageGain', { gain: damageGainPct.toFixed(1) })})`
-            ),
-            ...betterMainStat.map(({ part, current, ideal }) => `${partName(part)} · ${statName(current)} → ${ideal.map(statName).join(' / ')}`),
-          ]}
-        />
-        {nextTarget && (
-          <SuggestionLine
-            label={t('RelicScores.Summary.NextTarget') /* Next upgrade: */}
-            color='blue'
-            items={[`${partName(nextTarget.part)} · ${nextTarget.pct.toFixed(1)}%`]}
-          />
+    <Flex direction='column' gap={4} style={{ width: '100%' }}>
+      <SuggestionLine
+        label={t('RelicScores.Summary.Change') /* Change: */}
+        color='red'
+        items={toChange.map(({ part, pct, reason }) =>
+          `${partName(part)} · ${reason === 'LowScore' ? `${pct?.toFixed(1)}%` : t(`RelicScores.Summary.${reason}`)}`
         )}
-        {pending && <Text size='xs' c='dimmed'>{t('RelicScores.Summary.Simulating') /* Simulating main stats… */}</Text>}
-      </Flex>
-    </Table.Td>
+      />
+      <SuggestionLine
+        label={t('RelicScores.Summary.Reroll') /* Reroll: */}
+        color='green'
+        items={toReroll.map(({ part, gainPct }) => `${partName(part)} · +${gainPct.toFixed(1)}%`)}
+      />
+      <SuggestionLine
+        label={t('RelicScores.Summary.MainStat') /* Main stat: */}
+        color='orange'
+        items={[
+          ...simulated.map(({ part, current, best, damageGainPct }) =>
+            `${partName(part)} · ${statName(current)} → ${statName(best)} (${t('RelicScores.Summary.DamageGain', { gain: damageGainPct.toFixed(1) })})`
+          ),
+          ...betterMainStat.map(({ part, current, ideal }) => `${partName(part)} · ${statName(current)} → ${ideal.map(statName).join(' / ')}`),
+        ]}
+      />
+      {nextTarget && (
+        <SuggestionLine
+          label={t('RelicScores.Summary.NextTarget') /* Next upgrade: */}
+          color='blue'
+          items={[`${partName(nextTarget.part)} · ${nextTarget.pct.toFixed(1)}%`]}
+        />
+      )}
+      {pending && <Text size='xs' c='dimmed'>{t('RelicScores.Summary.Simulating') /* Simulating main stats… */}</Text>}
+    </Flex>
   )
 }
 
@@ -383,21 +435,5 @@ function SuggestionLine({ label, color, items }: { label: string, color: string,
         </Badge>
       ))}
     </Flex>
-  )
-}
-
-function ScoreCell({ result, relic, bold }: { result: RelicScoringResult | null, relic?: Relic | null, bold?: boolean }) {
-  if (!result) {
-    return <Table.Td style={{ textAlign: 'center' }}>—</Table.Td>
-  }
-  return (
-    <Table.Td style={{ backgroundColor: scoreColorScale(result.percentScore).css() }}>
-      <Flex align='center' justify='center' gap={6}>
-        {relic && <img src={Assets.getSetImage(relic.set, relic.part)} style={{ width: 28, height: 28 }} loading='lazy' />}
-        <Text size='sm' fw={bold ? 700 : 500}>
-          {result.rating} <Text span size='xs'>{result.percentScore.toFixed(1)}%</Text>
-        </Text>
-      </Flex>
-    </Table.Td>
   )
 }

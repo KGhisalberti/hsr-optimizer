@@ -52,6 +52,7 @@ import {
   provideGlobalGridOptions,
   RenderApiModule,
   RowApiModule,
+  RowAutoHeightModule,
   RowSelectionModule,
   ScrollApiModule,
 } from 'ag-grid-community'
@@ -68,6 +69,7 @@ ModuleRegistry.registerModules([
   PinnedRowModule,
   RenderApiModule,
   RowApiModule,
+  RowAutoHeightModule,
   RowSelectionModule,
   ScrollApiModule,
 ])
